@@ -10,6 +10,8 @@ from typing import List, Optional
 from zipfile import ZipFile
 
 import boto3
+from packaging.utils import parse_sdist_filename, InvalidSdistFilename
+from packaging.utils import parse_wheel_filename, InvalidWheelFilename
 
 from s3pypi import __prog__
 from s3pypi.exceptions import S3PyPiError
@@ -94,12 +96,11 @@ def parse_distribution(path: Path) -> Distribution:
         raise S3PyPiError(f"Unknown file type: {path}")
 
     if ext == ".whl":
-        meta = extract_wheel_metadata(path)
-        name, version = meta["Name"], meta["Version"]
+        name, version, *_ = parse_wheel_filename(str(path))
     else:
-        name, version = path.name[: -len(ext)].rsplit("-", 1)
+        name, version, *_ = parse_sdist_filename(str(path))
 
-    return Distribution(name, version, path)
+    return Distribution(name, str(version), path)
 
 
 def parse_distributions(paths: List[Path]) -> List[Distribution]:
@@ -119,17 +120,3 @@ def parse_distributions(paths: List[Path]) -> List[Distribution]:
         else:
             raise S3PyPiError(f"Not a file: {path}")
     return dists
-
-
-def extract_wheel_metadata(path: Path) -> PackageMetadata:
-    with ZipFile(path, "r") as whl:
-        try:
-            text = next(
-                whl.open(fname).read().decode()
-                for fname in whl.namelist()
-                if fname.endswith("METADATA")
-            )
-        except StopIteration:
-            raise S3PyPiError(f"No wheel metadata found in {path}") from None
-
-    return email.message_from_string(text)
